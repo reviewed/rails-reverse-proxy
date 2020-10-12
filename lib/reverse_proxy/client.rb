@@ -24,6 +24,10 @@ module ReverseProxy
 
     attr_accessor :url, :callbacks
 
+    def log(method, key, value)
+      puts "ReverseProxy::Client##{method}: #{key}=#{value}"
+    end
+
     def initialize(url)
       self.url = url
       self.callbacks = {}
@@ -46,16 +50,25 @@ module ReverseProxy
         verify_ssl: true
       )
 
+      log "request", "env", env
+      log "request", "options", options
+
       source_request = Rack::Request.new(env)
 
       # We can pass in a custom path
       uri = Addressable::URI.parse("#{url}#{options[:path] || env['ORIGINAL_FULLPATH']}")
 
+      log "request", "uri", uri
+
       # Initialize request
       target_request = Net::HTTP.const_get(source_request.request_method.capitalize).new(uri.request_uri)
 
+      log "request", "target_request", target_request
+
       # Setup headers
       target_request_headers = extract_http_request_headers(source_request.env).merge(options[:headers])
+
+      log "request", "target_request_headers", target_request_headers
 
       target_request.initialize_http_header(target_request_headers)
 
@@ -72,6 +85,9 @@ module ReverseProxy
       target_request.content_length = source_request.content_length || 0
       target_request.content_type   = source_request.content_type if source_request.content_type
 
+      log "request", "target_request.content_length", target_request.content_length
+      log "request", "target_request.content_type", target_request.content_type
+
       # Hold the response here
       target_response = nil
 
@@ -85,15 +101,25 @@ module ReverseProxy
       http_options[:use_ssl] = (uri.scheme == "https")
       http_options[:verify_mode] = OpenSSL::SSL::VERIFY_NONE unless options[:verify_ssl]
       http_options.merge!(options[:http]) if options[:http]
+      log "request", "http_options", http_options
 
       # Make the request
       Net::HTTP.start(uri.hostname, uri.port, http_options) do |http|
+        log "request", "uri.hostname", uri.hostname
+        log "request", "uri.port", uri.port
+        log "request", "http_options", http_options
+
         callbacks[:on_connect].call(http)
         target_response = http.request(target_request)
+
+        log "request", "target_response", target_response
       end
 
       status_code = target_response.code.to_i
       payload = [status_code, target_response]
+
+      log "request", "status_code", status_code
+      log "request", "payload", payload
 
       callbacks[:on_response].call(payload)
 
